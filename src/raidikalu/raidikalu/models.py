@@ -47,7 +47,7 @@ class EditableSettings(models.Model):
           setattr(self, unserialized_field_name, [])
     for raid_type in self.raid_types:
       raid_type['pokemon_number'] = get_pokemon_number_by_name(raid_type['pokemon'])
-      raid_type['pokemon_image'] = settings.BASE_POKEMON_IMAGE_URL.format(raid_type['pokemon_number'])
+      raid_type['pokemon_image'] = settings.BASE_POKEMON_IMAGE_URL.format(raid_type['pokemon_number']) if raid_type['pokemon_number'] is not None else ''
 
   @classmethod
   def load_current_settings(cls):
@@ -149,7 +149,7 @@ class Raid(TimestampedModel):
     return False
 
   def get_pokemon_image_url(self):
-    return settings.BASE_POKEMON_IMAGE_URL.format(self.pokemon_number)
+    return settings.BASE_POKEMON_IMAGE_URL.format(self.pokemon_number) if self.pokemon_number is not None else ''
 
   def get_time_left_until_start(self):
     return self.start_at - timezone.now() if self.start_at else None
@@ -279,7 +279,7 @@ class RaidVote(TimestampedModel):
         if vote.submitter in submitters:
           continue
         submitters.append(vote.submitter)
-        if raid_value == vote.vote_value:
+        if str(raid_value) == str(vote.vote_value):
           confidence += 1
         else:
           confidence -= 1
@@ -296,3 +296,59 @@ class Attendance(TimestampedModel):
 
   def __str__(self):
     return '%s // ' % self.raid
+
+
+class PushSubscription(TimestampedModel):
+  endpoint = models.URLField(max_length=255, null=False, blank=False)
+  auth = models.CharField(max_length=100, null=False, blank=False)
+  p256dh = models.CharField(max_length=100, null=False, blank=False)
+
+  def __str__(self):
+    return "{} // {} // {}".format(self.endpoint, self.auth, self.p256dh)
+
+  @classmethod
+  def find_by_subscription(endpoint, auth, p256dh):
+    return PushSubscription.objects.filter(endpoint=endpoint, auth=auth, p256dh=p256dh)
+
+  @classmethod
+  def find_by_raid(cls, raid):
+    if raid.pokemon_name:
+      return PushSubscription.objects.filter(pokemon__name=raid.pokemon_name, gyms__name=raid.gym.name)
+    else:
+      return PushSubscription.objects.filter(tiers__tier=raid.tier, gyms__name=raid.gym.name)
+
+class SubscriptionPokemon(models.Model):
+  name = models.CharField(max_length=100)
+  push_subscription = models.ForeignKey(PushSubscription, related_name="pokemon", on_delete=models.CASCADE)
+
+  class Meta:
+    indexes = [
+      models.Index(fields=['name'])
+    ]
+
+  def __str__(self):
+    return self.name
+
+class SubscriptionGym(models.Model):
+  name = models.CharField(max_length=2048)
+  push_subscription = models.ForeignKey(PushSubscription, related_name="gyms", on_delete=models.CASCADE)
+
+  class Meta:
+    indexes = [
+      models.Index(fields=['name'])
+    ]
+
+  def __str__(self):
+    return self.name
+
+class SubscriptionTier(models.Model):
+  tier = models.PositiveSmallIntegerField(null=False, blank=False)
+  push_subscription = models.ForeignKey(PushSubscription, related_name="tiers", on_delete=models.CASCADE)
+
+  class Meta:
+    indexes = [
+      models.Index(fields=['tier'])
+    ]
+
+  def __str__(self):
+    return str(self.tier)

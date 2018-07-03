@@ -184,8 +184,13 @@ function initRaidLinking() {
     var raidId;
 
     if (window.location.hash) {
-      raidId = window.location.hash.split('-')[1];
-      document.getElementById('raid-toggle-' + raidId).checked = true;
+      if (window.location.hash.startsWith('#redirect/')) {
+        var externalUrl = window.location.hash.substring('#redirect/'.length);
+        window.location.assign(externalUrl);
+      } else if (window.location.hash.startsWith('#raid')) {
+        raidId = window.location.hash.split('-')[1];
+        document.getElementById('raid-toggle-' + raidId).checked = true;
+      }
     }
 
   }

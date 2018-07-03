@@ -1,6 +1,5 @@
 {% extends "raidikalu/base.html" %}
 {% load l10n static %}
-
 {% block html_tag_extra %} class="no-js"{% endblock %}
 
 {% block head_extra %}
@@ -16,6 +15,8 @@
     <style>
       {% for raid_type in editable_settings.raid_types %}
       .pfc[value="{{ raid_type.pokemon }}"]:checked ~ .raid[data-pokemon="{{ raid_type.pokemon }}"] { display: block; }{% endfor %}
+      {% for gym in gyms %}
+      .gfc[value="{{ gym.name|addslashes }}"]:not(:checked) ~ .raid[data-gym="{{ gym.name|addslashes }}"] { display: none; !important }{% endfor %}
     </style>
     <script>document.documentElement.classList.remove('no-js');</script>
 {% endblock %}
@@ -36,10 +37,27 @@
     <button class="btn trainer-nickname-btn">OK</button>
     <p>Nää monnit kiinnostais</p>
     {% for raid_type in editable_settings.raid_types %}
-    <input id="pf{{ forloop.counter }}" class="pfc" data-tier="{{ raid_type.tier }}" type="checkbox" value="{{ raid_type.pokemon }}" checked /><label for="pf{{ forloop.counter }}" class="pft{{ raid_type.tier }} pfl">{{ raid_type.pokemon }}</label>{% endfor %}
+    <input id="pf{{ forloop.counter }}" class="fc pfc" data-tier="{{ raid_type.tier }}" type="checkbox" value="{{ raid_type.pokemon }}" checked /><label for="pf{{ forloop.counter }}" class="pft{{ raid_type.tier }} pfl fl">{{ raid_type.pokemon }}</label>{% endfor %}
     <div class="filter-buttons">
-      <button class="btn js-filter-all">Kaikki käy</button>
-      <button class="btn js-filter-none">Ei mikään</button>
+      <button class="btn mon js-filter-all">Kaikki käy</button>
+      <button class="btn mon js-filter-none">Ei mikään</button>
+    </div>
+
+    <p>Nää salit kiinnostais</p>
+    {% for gym in gyms %}
+    <input id="gf{{ forloop.counter }}" class="gfc fc" type="checkbox" value="{{ gym.name|addslashes }}" checked />
+    <label for="gf{{ forloop.counter }}" class="gfl fl">{{ gym.name|addslashes }}</label>
+    {% endfor %}
+    <div class="filter-buttons">
+      <button class="btn gym js-filter-all">Kaikki käy</button>
+      <button class="btn gym js-filter-none">Ei mikään</button>
+    </div>
+  
+    <p>Ilmoitukset kiinnostais</p>
+    <div>
+      <div id="notifications-message"></div>
+      <input id="notifications-toggle" class="nfc fc" type="checkbox" />
+      <label for="notifications-toggle" class="nfl fl">Ilmoita raideista</label>
     </div>
 
     {% regroup raids|dictsortreversed:"has_started" by has_started as raids_by_status %}
@@ -139,90 +157,123 @@
     {% endif %}
     {% endif %}
 
+
     {% if editable_settings.additional_information %}
     <div class="additional-information">
       {{ editable_settings.additional_information|safe }}
     </div>
     {% endif %}
-
+    
     <script>
       var CSRFTOKEN = '{{ csrf_token|addslashes }}';
       var NICKNAME = '{{ request_nickname }}';
     </script>
     <script>
-      (function persistPokemonFilters() {
+      (function persistPokemonAndGymFilters() {
 
         if ( ! window.localStorage) {
           return;
         }
 
-        var selectedPokemonData = localStorage.getItem('selected-pokemon-v{{ editable_settings.expires_at|date:"YmdHi" }}') || '[{% for raid_type in editable_settings.raid_types %}"{{ raid_type.pokemon }}"{% if not forloop.last %},{% endif %}{% endfor %}]';
+        var SELECTED_POKEMON_KEY = 'selected-pokemon-v{{ editable_settings.expires_at|date:"YmdHi" }}';
+        var SELECTED_GYMS_KEY = 'selected-gyms-v{{ editable_settings.expires_at|date:"YmdHi" }}';
+
+        var selectedPokemonData = localStorage.getItem(SELECTED_POKEMON_KEY) || '[{% for raid_type in editable_settings.raid_types %}"{{ raid_type.pokemon }}"{% if not forloop.last %},{% endif %}{% endfor %}]';
         var selectedPokemon = JSON.parse(selectedPokemonData) || [];
 
-        Array.prototype.slice.call(document.querySelectorAll('.pfc')).forEach(initFilters);
-        document.addEventListener('change', handlePokemonFilterChange);
+        Array.prototype.slice.call(document.querySelectorAll('.pfc')).forEach(initFilters(selectedPokemon));
 
+        var selectedTiers = [];
+
+        function updateTiers() {
+          selectedTiers.splice(0, selectedTiers.length);
+          for (var tier = 1; tier <= 5; ++tier) {
+            var tierEnabled = document.querySelector('.pfc[data-tier="' + tier + '"]:checked') !== null;
+            if (tierEnabled) {
+              selectedTiers.push(tier);
+            }
+          }
+        }
+	updateTiers();
+
+        var selectedGymsData = localStorage.getItem(SELECTED_GYMS_KEY) || '[{% for gym in gyms %}"{{ gym.pk }}"{% if not forloop.last %},{% endif %}{% endfor %}]';
+        var selectedGyms = JSON.parse(selectedGymsData) || [];
+
+        Array.prototype.slice.call(document.querySelectorAll('.gfc')).forEach(initFilters(selectedGyms));
+
+        document.addEventListener('change', handlePokemonGymFilterChange);
         document.documentElement.classList.add('js-loaded');
 
-        function initFilters(filterCheckbox) {
+        function initFilters(selectedValues) {
+          function initFilter(filterCheckbox) {
+            var value = filterCheckbox.value;
+            if (selectedValues.indexOf(value) === -1) {
+              filterCheckbox.checked = false;
+            }
+          }
+          return initFilter;
+        }
 
-          var pokemon = filterCheckbox.value;
-          if (selectedPokemon.indexOf(pokemon) === -1) {
-            filterCheckbox.checked = false;
+        function handlePokemonGymFilterChange(event) {
+          var checkbox = event.target;
+          if (checkbox.classList.contains('pfc')) {
+            persistFilter(checkbox, selectedPokemon, SELECTED_POKEMON_KEY);
+	    updateTiers();
+          } else if (checkbox.classList.contains('gfc')) {
+            persistFilter(checkbox, selectedGyms, SELECTED_GYMS_KEY);
+          }
+        }
+
+        function persistFilter(checkbox, selectedValues, STORAGE_KEY) {
+
+          var value = checkbox.value;
+          var indexOfValue = selectedValues.indexOf(value);
+
+          if (checkbox.checked && indexOfValue === -1) {
+            selectedValues.push(value);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedValues));
+          }
+          if ( ! checkbox.checked && indexOfValue !== -1) {
+            selectedValues.splice(indexOfValue, 1);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedValues));
           }
 
         }
 
-        function handlePokemonFilterChange(event) {
-          persistFilter(event.target);
-        }
+        createAllNoneListeners('.mon.js-filter-all', '.mon.js-filter-none', '.pfc', selectedPokemon, SELECTED_POKEMON_KEY)
+        createAllNoneListeners('.gym.js-filter-all', '.gym.js-filter-none', '.gfc', selectedGyms, SELECTED_GYMS_KEY)
 
-        function persistFilter(checkbox) {
+        function createAllNoneListeners(allSelector, noneSelector, inputSelector, selectedList, KEY) {
+          var allButton = document.querySelector(allSelector);
+          var noneButton = document.querySelector(noneSelector);
+          var filterCheckboxes = Array.prototype.slice.call(document.querySelectorAll(inputSelector));
 
-          var pokemon;
-          var indexOfPokemon;
-
-          if ( ! checkbox.classList.contains('pfc')) {
-            return;
-          }
-
-          pokemon = checkbox.value;
-          indexOfPokemon = selectedPokemon.indexOf(pokemon);
-
-          if (checkbox.checked && indexOfPokemon === -1) {
-            selectedPokemon.push(pokemon);
-            localStorage.setItem('selected-pokemon-v{{ editable_settings.expires_at|date:"YmdHi" }}', JSON.stringify(selectedPokemon));
-          }
-          if ( ! checkbox.checked && indexOfPokemon !== -1) {
-            selectedPokemon.splice(indexOfPokemon, 1);
-            localStorage.setItem('selected-pokemon-v{{ editable_settings.expires_at|date:"YmdHi" }}', JSON.stringify(selectedPokemon));
-          }
-
-        }
-
-        var allButton = document.querySelector('.js-filter-all');
-        var noneButton = document.querySelector('.js-filter-none');
-        var filterCheckboxes = Array.prototype.slice.call(document.querySelectorAll('.pfc'));
-
-        allButton.addEventListener('click', function setFilterAll() {
-          filterCheckboxes.forEach(function check(checkbox) {
-            checkbox.checked = true;
-            persistFilter(checkbox);
+          allButton.addEventListener('click', function setFilterAll() {
+            filterCheckboxes.forEach(function check(checkbox) {
+              checkbox.checked = true;
+              persistFilter(checkbox, selectedList, KEY);
+            });
           });
-        });
 
-        noneButton.addEventListener('click', function setFilterNone() {
-          filterCheckboxes.forEach(function uncheck(checkbox) {
-            checkbox.checked = false;
-            persistFilter(checkbox);
+          noneButton.addEventListener('click', function setFilterNone() {
+            filterCheckboxes.forEach(function uncheck(checkbox) {
+              checkbox.checked = false;
+              persistFilter(checkbox, selectedList, KEY);
+            });
           });
-        });
+        }
 
+	window.selectedPokemon = selectedPokemon;
+	window.selectedGyms = selectedGyms;
+	window.selectedTiers = selectedTiers;
       })();
     </script>
     <script>
       document.documentElement.classList.add('js-loaded');
+      window.serviceWorkerUrl = "{% static 'raidikalu/js/serviceworker.js' %}";
+      window.applicationServerKey = "{{ application_server_key }}";
     </script>
     <script src="{% static 'raidikalu/js/raid-list.js' %}" defer></script>
     <script src="{% static 'raidikalu/js/reconnecting-websocket.min.js' %}" defer onload="initMessageListeners()"></script>
+    <script src="{% static 'raidikalu/js/notifications.js' %}" defer></script>
 {% endblock %}

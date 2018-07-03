@@ -36,7 +36,7 @@ hr {
   border-bottom: 1px solid #eee;
   margin: 50px auto;
 }
-.pfc,
+.fc,
 .styled-checkable-input,
 .clipboard-input {
   position: absolute;
@@ -197,7 +197,7 @@ hr {
 .pfc[data-tier="4"]:checked ~ .raid[data-tier="4"][data-pokemon="unknown"] { display: block; }
 .pfc[data-tier="5"]:checked ~ .raid[data-tier="5"][data-pokemon="unknown"] { display: block; }
 .raid[data-tier=""] { display: block; }
-.pfl {
+.fl {
   display: inline-block;
   margin: 0 5px 5px 0;
   padding: 5px 10px;
@@ -210,15 +210,15 @@ hr {
   user-select: none;
   -webkit-tap-highlight-color: rgba(0,0,0,0);
 }
-.pfl:after {
+.fl:after {
   content: ": ei";
   display: inline-block;
   width: 25px;
 }
-.pfc:checked + .pfl:after {
+.fc:checked + .fl:after {
   content: ": joo";
 }
-.pfc:checked + .pfl {
+.fc:checked + .fl {
   color: #fff;
 }
 .pfc:checked + .pfl.pft5 {
@@ -235,6 +235,12 @@ hr {
 }
 .pfc:checked + .pfl.pft1 {
   background-color: #42A5F5;
+}
+.gfc:checked + .gfl {
+  background-color: rgb(101, 180, 167);
+}
+.nfc:checked + .nfl {
+  background-color: rgb(44, 55, 66);
 }
 .raid {
   display: none;

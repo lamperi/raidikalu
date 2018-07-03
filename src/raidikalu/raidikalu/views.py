@@ -5,6 +5,7 @@ import re
 from base64 import b64encode
 from calendar import timegm
 from datetime import timedelta, datetime
+from django.conf import settings
 from django.core.cache import cache
 from django.db.models.signals import post_save, pre_delete
 from django.http import HttpResponse, JsonResponse
@@ -16,6 +17,7 @@ from django.views.generic import TemplateView
 from django.views.decorators.csrf import csrf_exempt
 from raidikalu.messages import attendance_updated
 from raidikalu.models import EditableSettings, Gym, Raid, DataSource, RaidVote, Attendance
+from raidikalu.models import PushSubscription, SubscriptionPokemon, SubscriptionGym, SubscriptionTier
 from raidikalu.utils import get_nickname
 
 
@@ -102,6 +104,8 @@ class RaidListView(BaseRaidView):
     context['raids'] = self.get_queryset()
     context['request_nickname'] = get_nickname(self.request)
     context['now'] = timezone.now()
+    context['application_server_key'] = settings.NOTIFICATION_SETTINGS.get('VAPID_PUBLIC_KEY', '')
+    context['gyms'] = Gym.objects.order_by('name')
     for raid in context['raids']:
       self.update_raid_context(raid)
     return context
@@ -263,6 +267,52 @@ class RaidJsonExportView(View):
       })
     return JsonResponse(raids_json, safe=False, json_dumps_params={'separators': (',', ':')})
 
+class NotificationSubView(View):
+  def post(self, request, *args, **kwargs):
+    try:
+      data = json.loads(request.body.decode("utf-8"))
+    except ValueError:
+      raise HttpResponse(status=400)
+    subscription = {
+      'endpoint': data.get('subscription', {}).get('endpoint', ''),
+      'auth': data.get('subscription', {}).get('keys', {}).get('auth', ''),
+      'p256dh': data.get('subscription', {}).get('keys', {}).get('p256dh', ''),
+    }
+
+    sub, created = PushSubscription.objects.get_or_create(**subscription)
+    if not created:
+      sub.pokemon.clear()
+      sub.gym.clear()
+    for pokemon in data.get('pokemon', []):
+      poke = SubscriptionPokemon.objects.create(name=pokemon, push_subscription=sub)
+      sub.pokemon.add(poke)
+    for gym_name in data.get('gyms', []):
+      sub_gym = SubscriptionGym.objects.create(name=gym_name, push_subscription=sub)
+      sub.gyms.add(sub_gym)
+    for tier in data.get('tiers', []):
+      sub_tier = SubscriptionTier.objects.create(tier=tier, push_subscription=sub)
+      sub.tiers.add(sub_tier)
+
+    return JsonResponse({"success": True}, status=201)
+    
+class NotificationUnsubView(View):
+  def post(self, request, *args, **kwargs):
+    try:
+      data = json.loads(request.body.decode("utf-8"))
+    except ValueError:
+      raise HttpResponse(status=400)
+    subscription = {
+      'endpoint': data.get('subscription', {}).get('endpoint', ''),
+      'auth': data.get('subscription', {}).get('keys', {}).get('auth', ''),
+      'p256dh': data.get('subscription', {}).get('keys', {}).get('p256dh', ''),
+    }
+
+    try:
+      sub = PushSubscription.objects.get(**subscription)
+      sub.delete()
+    except PushSubscription.DoesNotExist:
+      pass
+    return JsonResponse({"success": True}, status=202)
 
 @method_decorator(csrf_exempt, name='dispatch')
 class RaidReceiverView(View):
@@ -347,3 +397,4 @@ class GymReceiverView(View):
     })
 
     return HttpResponse('OK')
+
